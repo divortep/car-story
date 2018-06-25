@@ -1,0 +1,8 @@
+[workspace]
+
+members = [
+    "exonum",
+    "sandbox",
+    "3rdparty/flamer",
+    "3rdparty/profiler",
+]

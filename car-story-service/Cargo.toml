@@ -1,0 +1,16 @@
+[package]
+name = "car-story"
+version = "0.1.0"
+authors = ["Dmitrii Petrov <petrov.dma@gmail.com>"]
+
+[dependencies]
+iron = "0.5.1"
+bodyparser = "0.7.0"
+router = "0.5.1"
+serde = "1.0.19"
+serde_json = "1.0.6"
+serde_derive = "1.0.19"
+#exonum = "0.3.0"
+
+[dependencies.exonum]
+path="./3dparty/exonum/exonum"

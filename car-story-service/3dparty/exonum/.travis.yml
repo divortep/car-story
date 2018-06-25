@@ -1,0 +1,145 @@
+language: rust
+
+addons:
+  apt:
+    sources:
+    - sourceline: 'ppa:giskou/librocksdb'
+    packages:
+    - gcc
+    - g++
+    - libssl-dev
+    - libcurl4-openssl-dev
+    - libelf-dev
+    - libdw-dev
+    - binutils-dev
+    - libiberty-dev
+    - libsnappy-dev
+    - librocksdb
+
+rust:
+  - stable
+matrix:
+  allow_failures:
+    - env: FEATURE=non-fatal-checks
+  fast_finish: true
+  include:
+    - rust: nightly-2017-10-19
+      env: FEATURE=benchmarks
+    - rust: nightly-2017-10-19
+      env: FEATURE=clippy-core
+    - rust: nightly-2017-10-19
+      env: FEATURE=clippy-sandbox
+
+cache:
+  directories:
+  - $HOME/.cargo
+  - $HOME/.local
+  - $TRAVIS_BUILD_DIR/target
+
+dist: trusty
+sudo: required
+
+env:
+  global:
+  - CLIPPY_VERS=0.0.166
+  - RUSTFMT_VERS=0.9.0
+  - DEADLINKS_VERS=0.2.1
+  - SODIUM_VERS=1.0.13
+  - CARGO_INCREMENTAL=1
+  - RUSTFLAGS="-C link-dead-code"
+  - CODECOV_TOKEN=90006bf6-e4b7-4825-b880-8d19c4e21c21
+  - ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
+  - SNAPPY_LIB_DIR=/usr/lib/x86_64-linux-gnu
+  matrix:
+  - FEATURE=fmt
+  - FEATURE=test-core
+  - FEATURE=test-sandbox
+  - FEATURE=test-doc
+  - FEATURE=non-fatal-checks
+
+install:
+- |
+  if [ ! -f "$HOME/.local/lib/libsodium.a" ]; then
+    wget "https://github.com/jedisct1/libsodium/releases/download/$SODIUM_VERS/libsodium-$SODIUM_VERS.tar.gz" -t 5 -O "libsodium.tar.gz"
+    tar xvf libsodium.tar.gz
+    cd libsodium-$SODIUM_VERS
+    ./configure --prefix=$HOME/.local
+    make
+    make install
+    cd ..
+  fi
+- export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HOME/.local/lib
+- export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$HOME/.local/lib/pkgconfig
+- |
+  if [[ "$FEATURE" == "non-fatal-checks" ]]; then
+    cargo-deadlinks -V | grep $DEADLINKS_VERS || cargo install cargo-deadlinks --vers $DEADLINKS_VERS --force
+    fi
+- |
+  if [[ "$FEATURE" == "fmt" ]]; then
+    cargo-audit -V || cargo install cargo-audit --force
+    rustfmt -V | grep $RUSTFMT_VERS || cargo install rustfmt --vers $RUSTFMT_VERS --force
+    cargo update
+    fi
+- |
+  case "$FEATURE" in
+  clippy* )
+    cargo clippy --version | grep $CLIPPY_VERS || cargo install clippy --force --vers $CLIPPY_VERS
+  ;;
+  esac
+- cargo install --list
+script: |
+  case "$FEATURE" in
+
+  "fmt" )
+      cargo audit &&
+      cargo fmt -p exonum -- --write-mode=diff &&
+      cargo fmt -p sandbox -- --write-mode=diff
+  ;;
+  "clippy-core" )
+      cd exonum && cargo clippy --verbose --features long_benchmarks  -- -D warnings
+  ;;
+  "clippy-sandbox" )
+      cd sandbox && cargo clippy --verbose -- -D warnings
+  ;;
+  "test-core" )
+      cargo test --manifest-path exonum/Cargo.toml --verbose --tests --lib
+  ;;
+  "test-sandbox" )
+      cargo test -p sandbox --verbose
+  ;;
+  "test-doc" )
+      cargo test -p exonum --verbose --doc  -- --test-threads=2
+  ;;
+  "non-fatal-checks" )
+      cargo doc --no-deps -p exonum &&
+      cargo deadlinks --dir target/doc
+  ;;
+  "benchmarks" )
+        RUST_LOG=off cargo bench --verbose --manifest-path exonum/Cargo.toml --features long_benchmarks --no-run
+  ;;
+
+  esac
+
+after_success: |
+  [ $TRAVIS_BRANCH = master ] &&
+  [ $TRAVIS_PULL_REQUEST = false ] &&
+  wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
+  tar xzf master.tar.gz &&
+  cd kcov-master &&
+  mkdir build &&
+  cd build &&
+  cmake .. &&
+  make &&
+  make install &&
+  cd ../.. &&
+  rm -rf kcov-master &&
+  for file in target/debug/exonum-*[^\.d]; do mkdir -p "target/cov/$(basename $file)"; kcov --exclude-pattern=/.cargo,/usr/lib --verify "target/cov/$(basename $file)" "$file"; done &&
+  bash <(curl -s https://codecov.io/bash) &&
+  echo "Uploaded code coverage"
+
+notifications:
+  slack:
+    secure: ufnH5/ilJ/GkfzU28GguFgQzL1Jb7gGGVaBytCi1VW9cvME7wHC/Pf3ZDM9cVv7t8Cq6K423J8pSkT8vErB7GzHLGRJK8EsBkuGxiAJiHJIVNf/a20gjyqtS2wSyoVDDFz1LRtCNvQanSy2psSWyJcWtnAllluwRNHKXZWYFOpU6uqt2XIi1s3vuMyVw177alNyQkUJ6mhnt9ZDGoMXfcwXIvZ1bt3GPwAbuvAiHsShIrtVGJYTbIBDBsFsGgc1313xdz670xa1JrvZpIl0ZF91Z/0rxtQZjYos859ARnP+v5TfMpsOZbhVHtLI81/o/dOu/Dnrv2xo4VgLaHCTPfhO7LE7kGZ1OyEFqzsadL+k97JQnfkyyFRA84FrVNvgn5NStJtNRJu593v0zuI1OpmY5Xcu/XG2X3dpYZJGciKywoI8gFCc18taIqWY8P3uL/KdxX3VLikMkmYX+cXxHwhH/RvNLbfxD+hTepz+sGWBnLg/dFNpy3WdzJrSNKE9OAH3Gy53z32fT7XiGF8+juN3RB7MmoLA+sOKnGnjal+o44Ga7KDxHe9lOjRVWAQFH6lIEVNwpdEp+2zqu2QAyCIbYcyEdxo8oKXMwAOPFeIqFGshAYGSQAYbT9V75J2Hfcpqb+EXhiBluCSjoaacg4Yhsc/tFhqI7B5+tq7Z5KVU=
+  webhooks:
+    urls:
+    - https://webhooks.gitter.im/e/9599da7e3a500810190d
