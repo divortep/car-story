@@ -1,0 +1,1 @@
+This is a prototype of application, based on Exonum framework.
